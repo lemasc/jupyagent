@@ -17,7 +17,15 @@ Notebook JSON is noisy for both humans and coding agents. `jupyagent` exposes co
 
 ## Install
 
-This workspace is already set up with `uv`.
+Clone this repository, activate your virtual environment, and install this project directly.
+
+```
+pip install -e .
+```
+
+## Development Install
+
+This workspace is configured with `uv`.
 
 ```bash
 uv sync --dev
@@ -26,7 +34,8 @@ uv sync --dev
 Run the CLI with:
 
 ```bash
-uv run jupyagent --help
+source .venv/bin/activate
+jupyagent --help
 ```
 
 ## Agent Guidance
@@ -120,55 +129,55 @@ jupyagent cell move analysis.ipynb 3:5 end
 List cells:
 
 ```bash
-uv run jupyagent cell list analysis.ipynb
+jupyagent cell list analysis.ipynb
 ```
 
 Read a code cell:
 
 ```bash
-uv run jupyagent cell read analysis.ipynb 2
+jupyagent cell read analysis.ipynb 2
 ```
 
 Insert a markdown cell from a file:
 
 ```bash
-uv run jupyagent cell insert analysis.ipynb end --type markdown --file notes.md
+jupyagent cell insert analysis.ipynb end --type markdown --file notes.md
 ```
 
 Insert a code cell from stdin:
 
 ```bash
-uv run jupyagent cell insert analysis.ipynb after:prep --type code < transform.py
+jupyagent cell insert analysis.ipynb after:prep --type code < transform.py
 ```
 
 Replace a cell and clear old outputs:
 
 ```bash
-uv run jupyagent cell replace analysis.ipynb 2 --type code < transform.py
+jupyagent cell replace analysis.ipynb 2 --type code < transform.py
 ```
 
 Replace a code cell but keep saved outputs:
 
 ```bash
-uv run jupyagent cell replace analysis.ipynb abc123 --type code --keep-outputs < transform.py
+jupyagent cell replace analysis.ipynb abc123 --type code --keep-outputs < transform.py
 ```
 
 Delete a range of cells:
 
 ```bash
-uv run jupyagent cell delete analysis.ipynb 3:5
+jupyagent cell delete analysis.ipynb 3:5
 ```
 
 Move cells to the end:
 
 ```bash
-uv run jupyagent cell move analysis.ipynb 3:5 end
+jupyagent cell move analysis.ipynb 3:5 end
 ```
 
 Read saved outputs:
 
 ```bash
-uv run jupyagent output read analysis.ipynb 2
+jupyagent output read analysis.ipynb 2
 ```
 
 ## Output Behavior
