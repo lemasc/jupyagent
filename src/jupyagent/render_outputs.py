@@ -4,6 +4,7 @@ import base64
 from pathlib import Path
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 from .errors import JupyagentError
 
@@ -40,6 +41,10 @@ def render_single_output(notebook_path: Path, cell: dict, output: dict, output_i
     data = output.get("data", {})
     if "text/markdown" in data:
         return [_join(data["text/markdown"])]
+    if "text/html" in data:
+        markdown_table = render_html_table(_join(data["text/html"]))
+        if markdown_table is not None:
+            return [markdown_table]
     if "text/plain" in data:
         return fenced("text", _join(data["text/plain"]))
     if "text/html" in data:
@@ -73,6 +78,79 @@ def write_image_asset(
 
 def fenced(language: str, body: str) -> list[str]:
     return [f"```{language}", body.rstrip(), "```"]
+
+
+def render_html_table(html: str) -> str | None:
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table")
+    if not isinstance(table, Tag):
+        return None
+
+    headers = _extract_table_headers(table)
+    rows = _extract_table_rows(table)
+    if not headers and not rows:
+        return None
+
+    width = max(len(headers), *(len(row) for row in rows), 0)
+    if width == 0:
+        return None
+
+    normalized_headers = _pad_row(headers, width) if headers else [""] * width
+    normalized_rows = [_pad_row(row, width) for row in rows]
+    divider = ["---"] * width
+
+    lines = [
+        _markdown_table_row(normalized_headers),
+        _markdown_table_row(divider),
+        *(_markdown_table_row(row) for row in normalized_rows),
+    ]
+    return "\n".join(lines)
+
+
+def _extract_table_headers(table: Tag) -> list[str]:
+    thead = table.find("thead")
+    if isinstance(thead, Tag):
+        for row in thead.find_all("tr"):
+            header_cells = row.find_all(["th", "td"], recursive=False)
+            if header_cells:
+                return [_cell_text(cell) for cell in header_cells]
+
+    first_row = table.find("tr")
+    if isinstance(first_row, Tag):
+        header_cells = first_row.find_all("th", recursive=False)
+        if header_cells:
+            return [_cell_text(cell) for cell in header_cells]
+    return []
+
+
+def _extract_table_rows(table: Tag) -> list[list[str]]:
+    rows: list[list[str]] = []
+    body_sections = table.find_all("tbody") or [table]
+    for section in body_sections:
+        if not isinstance(section, Tag):
+            continue
+        for row in section.find_all("tr", recursive=section.name == "table"):
+            cells = row.find_all(["th", "td"], recursive=False)
+            if cells:
+                rows.append([_cell_text(cell) for cell in cells])
+    return rows
+
+
+def _pad_row(row: list[str], width: int) -> list[str]:
+    return row + [""] * (width - len(row))
+
+
+def _markdown_table_row(row: list[str]) -> str:
+    return "| " + " | ".join(_escape_markdown_cell(cell) for cell in row) + " |"
+
+
+def _escape_markdown_cell(value: str) -> str:
+    return value.replace("|", "\\|")
+
+
+def _cell_text(cell: Tag) -> str:
+    text = cell.get_text(" ", strip=True)
+    return " ".join(text.split())
 
 
 def _join(value: str | list[str]) -> str:

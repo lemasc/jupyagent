@@ -188,7 +188,8 @@ Current MVP support:
 
 - `text/markdown`
 - `text/plain`
-- `text/html` converted to readable text
+- `text/html` tables converted to Markdown tables
+- other `text/html` output converted to readable text
 - `image/png`
 - `image/jpeg`
 
