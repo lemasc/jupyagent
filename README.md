@@ -214,7 +214,8 @@ Current MVP support:
 
 - `text/markdown`
 - `text/plain`
-- `text/html` tables converted to Markdown tables
+- simple `text/html` tables converted to Markdown tables
+- complex `text/html` tables normalized into row-oriented fenced `table` blocks
 - other `text/html` output converted to readable text
 - `image/png`
 - `image/jpeg`

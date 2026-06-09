@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 from pathlib import Path
 
 from bs4 import BeautifulSoup
@@ -42,9 +43,9 @@ def render_single_output(notebook_path: Path, cell: dict, output: dict, output_i
     if "text/markdown" in data:
         return [_join(data["text/markdown"])]
     if "text/html" in data:
-        markdown_table = render_html_table(_join(data["text/html"]))
-        if markdown_table is not None:
-            return [markdown_table]
+        rendered_table = render_html_table(_join(data["text/html"]))
+        if rendered_table is not None:
+            return [rendered_table]
     if "text/plain" in data:
         return fenced("text", _join(data["text/plain"]))
     if "text/html" in data:
@@ -80,22 +81,148 @@ def fenced(language: str, body: str) -> list[str]:
     return [f"```{language}", body.rstrip(), "```"]
 
 
+@dataclass(frozen=True)
+class TableCell:
+    text: str
+    is_header: bool
+
+
+@dataclass
+class PendingSpan:
+    remaining_rows: int
+    cell: TableCell
+
+
+@dataclass(frozen=True)
+class NormalizedTable:
+    header_rows: list[list[TableCell]]
+    body_rows: list[list[TableCell]]
+    has_spans: bool
+
+
 def render_html_table(html: str) -> str | None:
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table")
     if not isinstance(table, Tag):
         return None
 
-    headers = _extract_table_headers(table)
-    rows = _extract_table_rows(table)
-    if not headers and not rows:
+    normalized = _normalize_html_table(table)
+    if normalized is None:
         return None
 
-    width = max(len(headers), *(len(row) for row in rows), 0)
+    if _is_simple_table(normalized):
+        return _render_simple_markdown_table(normalized)
+    return _render_structured_table(normalized)
+
+
+def _normalize_html_table(table: Tag) -> NormalizedTable | None:
+    header_source_rows = _section_rows(table, "thead")
+    body_source_rows = _section_rows(table, "tbody")
+    if not body_source_rows:
+        body_source_rows = _direct_body_rows(table)
+
+    header_rows, header_has_spans = _expand_table_rows(header_source_rows)
+    body_rows, body_has_spans = _expand_table_rows(body_source_rows)
+    if not header_rows and not body_rows:
+        return None
+
+    width = max((len(row) for row in [*header_rows, *body_rows]), default=0)
     if width == 0:
         return None
 
-    normalized_headers = _pad_row(headers, width) if headers else [""] * width
+    return NormalizedTable(
+        header_rows=[_pad_cells(row, width) for row in header_rows],
+        body_rows=[_pad_cells(row, width) for row in body_rows],
+        has_spans=header_has_spans or body_has_spans,
+    )
+
+
+def _section_rows(table: Tag, section_name: str) -> list[Tag]:
+    rows: list[Tag] = []
+    for section in table.find_all(section_name, recursive=False):
+        rows.extend(row for row in section.find_all("tr") if isinstance(row, Tag))
+    return rows
+
+
+def _direct_body_rows(table: Tag) -> list[Tag]:
+    rows: list[Tag] = []
+    for row in table.find_all("tr"):
+        if not isinstance(row, Tag):
+            continue
+        if any(isinstance(parent, Tag) and parent.name in {"thead", "tbody", "tfoot", "table"} for parent in row.parents):
+            nearest_section = next((parent for parent in row.parents if isinstance(parent, Tag) and parent.name in {"thead", "tbody", "tfoot", "table"}), None)
+            if nearest_section is table:
+                rows.append(row)
+    return rows
+
+
+def _expand_table_rows(source_rows: list[Tag]) -> tuple[list[list[TableCell]], bool]:
+    rows: list[list[TableCell]] = []
+    pending: dict[int, PendingSpan] = {}
+    has_spans = False
+
+    for source_row in source_rows:
+        row: list[TableCell] = []
+        col = 0
+        col = _fill_pending_cells(row, pending, col)
+
+        for cell_tag in source_row.find_all(["th", "td"], recursive=False):
+            col = _fill_pending_cells(row, pending, col)
+
+            colspan = max(int(cell_tag.get("colspan", 1) or 1), 1)
+            rowspan = max(int(cell_tag.get("rowspan", 1) or 1), 1)
+            has_spans = has_spans or colspan > 1 or rowspan > 1
+            cell = TableCell(text=_cell_text(cell_tag), is_header=cell_tag.name == "th")
+
+            for offset in range(colspan):
+                row.append(cell)
+                if rowspan > 1:
+                    pending[col + offset] = PendingSpan(remaining_rows=rowspan - 1, cell=cell)
+            col += colspan
+
+        _fill_pending_cells(row, pending, col)
+        rows.append(row)
+
+    return rows, has_spans
+
+
+def _fill_pending_cells(row: list[TableCell], pending: dict[int, PendingSpan], col: int) -> int:
+    while col in pending:
+        span = pending[col]
+        row.append(span.cell)
+        if span.remaining_rows == 1:
+            del pending[col]
+        else:
+            span.remaining_rows -= 1
+        col += 1
+    return col
+
+
+def _pad_cells(row: list[TableCell], width: int) -> list[TableCell]:
+    return row + [TableCell(text="", is_header=False)] * (width - len(row))
+
+
+def _is_simple_table(table: NormalizedTable) -> bool:
+    return not table.has_spans and len(table.header_rows) <= 1
+
+
+def _render_simple_markdown_table(table: NormalizedTable) -> str | None:
+    headers = [[cell.text for cell in row] for row in table.header_rows]
+    rows = [[cell.text for cell in row] for row in table.body_rows]
+
+    if not headers and rows and rows[0] and all(cell.is_header for cell in table.body_rows[0]):
+        headers = [rows[0]]
+        rows = rows[1:]
+
+    flat_headers = headers[-1] if headers else []
+    if not flat_headers and not rows:
+        return None
+
+    width = max(len(flat_headers), *(len(row) for row in rows), 0)
+    if width == 0:
+        return None
+
+    normalized_headers = _pad_row(flat_headers, width) if flat_headers else [""] * width
     normalized_rows = [_pad_row(row, width) for row in rows]
     divider = ["---"] * width
 
@@ -107,33 +234,58 @@ def render_html_table(html: str) -> str | None:
     return "\n".join(lines)
 
 
-def _extract_table_headers(table: Tag) -> list[str]:
-    thead = table.find("thead")
-    if isinstance(thead, Tag):
-        for row in thead.find_all("tr"):
-            header_cells = row.find_all(["th", "td"], recursive=False)
-            if header_cells:
-                return [_cell_text(cell) for cell in header_cells]
+def _render_structured_table(table: NormalizedTable) -> str:
+    width = max((len(row) for row in [*table.header_rows, *table.body_rows]), default=0)
+    column_names = [_column_name(table.header_rows, index) for index in range(width)]
+    row_header_count = _row_header_count(table.body_rows)
+    column_names = [name or f"column_{index + 1}" for index, name in enumerate(column_names)]
 
-    first_row = table.find("tr")
-    if isinstance(first_row, Tag):
-        header_cells = first_row.find_all("th", recursive=False)
-        if header_cells:
-            return [_cell_text(cell) for cell in header_cells]
-    return []
+    lines = ["columns:"]
+    for name in column_names:
+        lines.append(f"- {name}")
 
-
-def _extract_table_rows(table: Tag) -> list[list[str]]:
-    rows: list[list[str]] = []
-    body_sections = table.find_all("tbody") or [table]
-    for section in body_sections:
-        if not isinstance(section, Tag):
+    lines.append("rows:")
+    for row in table.body_rows:
+        if not any(cell.text for cell in row):
             continue
-        for row in section.find_all("tr", recursive=section.name == "table"):
-            cells = row.find_all(["th", "td"], recursive=False)
-            if cells:
-                rows.append([_cell_text(cell) for cell in cells])
-    return rows
+        lines.append(f"- {column_names[0]}: {_table_scalar(row[0].text)}")
+        for index, cell in enumerate(row[1:], start=1):
+            lines.append(f"  {column_names[index]}: {_table_scalar(cell.text)}")
+
+    if lines[-1] == "rows:":
+        lines.append("- {}")
+
+    return "\n".join(fenced("table", "\n".join(lines)))
+
+
+def _column_name(header_rows: list[list[TableCell]], index: int) -> str:
+    parts: list[str] = []
+    for row in header_rows:
+        if index >= len(row):
+            continue
+        text = row[index].text
+        if not text or (parts and parts[-1] == text):
+            continue
+        parts.append(text)
+    return " > ".join(parts)
+
+
+def _row_header_count(body_rows: list[list[TableCell]]) -> int:
+    if not body_rows:
+        return 0
+
+    width = max((len(row) for row in body_rows), default=0)
+    count = 0
+    for index in range(width):
+        column_cells = [row[index] for row in body_rows if index < len(row)]
+        if not column_cells:
+            break
+        if not all(cell.is_header for cell in column_cells):
+            break
+        if not any(any(not later.is_header and later.text for later in row[index + 1 :]) for row in body_rows):
+            break
+        count += 1
+    return count
 
 
 def _pad_row(row: list[str], width: int) -> list[str]:
@@ -151,6 +303,10 @@ def _escape_markdown_cell(value: str) -> str:
 def _cell_text(cell: Tag) -> str:
     text = cell.get_text(" ", strip=True)
     return " ".join(text.split())
+
+
+def _table_scalar(value: str) -> str:
+    return value if value else '""'
 
 
 def _join(value: str | list[str]) -> str:
