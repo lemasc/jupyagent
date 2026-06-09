@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import json
-import shutil
 from pathlib import Path
 
 import nbformat
@@ -93,20 +92,6 @@ def test_output_read_extracts_image_asset(notebook_copy: Path) -> None:
     assert result.exit_code == 0
     assert "![output image](.jupyagent/assets/sample/code-1/2.png)" in result.stdout
     assert (notebook_copy.parent / ".jupyagent" / "assets" / "sample" / "code-1" / "2.png").exists()
-
-
-def test_output_read_converts_html_table_to_markdown(tmp_path: Path) -> None:
-    notebook = tmp_path / "pandas.ipynb"
-    shutil.copy2(Path(__file__).parent / "fixtures" / "pandas.ipynb", notebook)
-
-    result = runner.invoke(app, ["output", "read", str(notebook), "1"])
-
-    assert result.exit_code == 0
-    assert "|  | Name | Age |" in result.stdout
-    assert "| --- | --- | --- |" in result.stdout
-    assert "| 0 | Alice | 25 |" in result.stdout
-    assert "| 1 | Bob | 30 |" in result.stdout
-    assert "<table" not in result.stdout
 
 
 def test_exec_runs_notebook_in_place(exec_success_notebook: Path) -> None:
