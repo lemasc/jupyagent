@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import copy
+import re
 import sys
+import time
 from pathlib import Path
 
 import nbformat
+import nbclient
 import yaml
+from jupyter_client.kernelspec import NoSuchKernel
+from nbclient.exceptions import CellExecutionError, CellTimeoutError
 
 from .cell_ids import count_id_issues, ensure_cell_ids
 from .errors import JupyagentError
@@ -16,6 +21,7 @@ from .render_outputs import render_cell_outputs
 from .selectors import resolve_selector_index, resolve_selector_indices
 
 CELL_TYPES = {"code", "markdown", "raw"}
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def list_cells(notebook_path: Path) -> str:
@@ -130,6 +136,35 @@ def move_cells(notebook_path: Path, selector: str, position: str) -> str:
     )
 
 
+def execute_notebook(notebook_path: Path, timeout: int | None, output_path: Path | None) -> str:
+    notebook = load_notebook(notebook_path)
+    repaired = ensure_cell_ids(notebook.cells)
+    destination = output_path or notebook_path
+    started = time.monotonic()
+    client = nbclient.NotebookClient(notebook, timeout=timeout, record_timing=False)
+    try:
+        client.execute()
+    except NoSuchKernel as exc:
+        raise JupyagentError(f"error: kernel '{exc.name}' is not installed") from exc
+    except (CellExecutionError, CellTimeoutError) as exc:
+        atomic_write_notebook(destination, notebook)
+        raise JupyagentError(_execution_error(notebook, destination, started, repaired, exc)) from exc
+    except Exception as exc:
+        raise JupyagentError(f"error: failed to execute notebook '{notebook_path}'") from exc
+
+    atomic_write_notebook(destination, notebook)
+    return _yaml(
+        {
+            "modified": destination.name,
+            "operation": "notebook exec",
+            "source": notebook_path.name,
+            "executed_cells": sum(1 for cell in notebook.cells if cell.get("cell_type") == "code"),
+            "elapsed_seconds": round(time.monotonic() - started, 3),
+            "ids_repaired": repaired,
+        }
+    )
+
+
 def read_source(file_path: Path | None) -> str:
     if file_path is not None:
         try:
@@ -170,6 +205,48 @@ def _replacement_cell(existing: dict, cell_type: str, source: str, keep_outputs:
         replacement["outputs"] = copy.deepcopy(existing.get("outputs", []))
         replacement["execution_count"] = existing.get("execution_count")
     return replacement
+
+
+def _execution_error(
+    notebook: dict,
+    destination: Path,
+    started: float,
+    repaired: int,
+    exc: CellExecutionError | CellTimeoutError,
+) -> str:
+    index, cell_id = _find_failed_cell(notebook)
+    payload = {
+        "modified": destination.name,
+        "operation": "notebook exec",
+        "status": "failed",
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+        "ids_repaired": repaired,
+        "failed_cell": {"index": index, "id": cell_id},
+        "error": _summarize_execution_exception(exc),
+    }
+    return _yaml(payload)
+
+
+def _find_failed_cell(notebook: dict) -> tuple[int | None, str | None]:
+    for index in range(len(notebook.cells) - 1, -1, -1):
+        cell = notebook.cells[index]
+        if cell.get("cell_type") != "code":
+            continue
+        outputs = cell.get("outputs", [])
+        if any(output.get("output_type") == "error" for output in outputs):
+            return index + 1, cell.get("id")
+    return None, None
+
+
+def _summarize_execution_exception(exc: CellExecutionError | CellTimeoutError) -> str:
+    if isinstance(exc, CellTimeoutError):
+        return _strip_ansi(str(exc).strip().splitlines()[-1])
+    lines = [_strip_ansi(line.strip()) for line in str(exc).splitlines() if line.strip()]
+    return lines[-1] if lines else exc.__class__.__name__
+
+
+def _strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 def _yaml(payload: dict) -> str:

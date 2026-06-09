@@ -109,6 +109,54 @@ def test_output_read_converts_html_table_to_markdown(tmp_path: Path) -> None:
     assert "<table" not in result.stdout
 
 
+def test_exec_runs_notebook_in_place(exec_success_notebook: Path) -> None:
+    result = runner.invoke(app, ["exec", str(exec_success_notebook)])
+
+    assert result.exit_code == 0
+    assert "operation: notebook exec" in result.stdout
+    assert "modified: exec_success.ipynb" in result.stdout
+    assert "executed_cells: 2" in result.stdout
+
+    notebook = nbformat.read(exec_success_notebook, as_version=4)
+    assert notebook.cells[0]["execution_count"] == 1
+    assert notebook.cells[0]["outputs"][0]["text"] == "5\n"
+    assert notebook.cells[1]["execution_count"] == 2
+    assert notebook.cells[1]["outputs"][0]["data"]["text/plain"] == "10"
+
+
+def test_exec_writes_to_output_path(exec_success_notebook: Path) -> None:
+    output = exec_success_notebook.parent / "executed.ipynb"
+
+    result = runner.invoke(
+        app,
+        ["exec", str(exec_success_notebook), "--output", str(output)],
+    )
+
+    assert result.exit_code == 0
+    assert f"modified: {output.name}" in result.stdout
+
+    source_notebook = nbformat.read(exec_success_notebook, as_version=4)
+    output_notebook = nbformat.read(output, as_version=4)
+    assert source_notebook.cells[0]["execution_count"] is None
+    assert output_notebook.cells[0]["execution_count"] == 1
+
+
+def test_exec_reports_failure_and_writes_partial_outputs(exec_failure_notebook: Path) -> None:
+    result = runner.invoke(app, ["exec", str(exec_failure_notebook)])
+
+    assert result.exit_code == 1
+    assert "operation: notebook exec" in result.stderr
+    assert "status: failed" in result.stderr
+    assert "index: 2" in result.stderr
+    assert "id: boom" in result.stderr
+    assert "ValueError: boom" in result.stderr
+
+    notebook = nbformat.read(exec_failure_notebook, as_version=4)
+    assert notebook.cells[0]["execution_count"] == 1
+    assert notebook.cells[0]["outputs"][0]["text"] == "before\n"
+    assert notebook.cells[1]["outputs"][0]["output_type"] == "error"
+
+
 def test_missing_selector_exits_nonzero(notebook_copy: Path) -> None:
     result = runner.invoke(app, ["cell", "read", str(notebook_copy), "missing"])
     assert result.exit_code == 1

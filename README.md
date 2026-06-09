@@ -2,14 +2,15 @@
 
 `jupyagent` is an agent-first CLI for inspecting and editing Jupyter notebooks without working directly with raw `.ipynb` JSON.
 
-This MVP focuses on notebook file management only:
+This MVP focuses on notebook file management and stateless full-notebook execution:
 
 - list cells
 - read cell source
 - read saved outputs
 - insert, replace, delete, and move cells
+- execute a notebook from top to bottom
 
-It does not execute notebooks or manage kernels.
+It does not provide interactive or persistent kernel management.
 
 ## Why It Exists
 
@@ -56,7 +57,8 @@ Recommended workflow for agents:
 2. Read specific cells with `jupyagent cell read <notebook> <selector>`.
 3. Read saved outputs with `jupyagent output read <notebook> <selector>` when needed.
 4. Apply structural edits with `cell insert`, `cell replace`, `cell delete`, or `cell move`.
-5. Re-run `cell list` or `cell read` to verify the result.
+5. Run `jupyagent exec <notebook>` when you need fresh outputs.
+6. Re-run `cell list`, `cell read`, or `output read` to verify the result.
 
 Notes:
 
@@ -76,6 +78,7 @@ jupyagent cell delete <notebook> <selector>
 jupyagent cell move <notebook> <selector> <position>
 
 jupyagent output read <notebook> <selector>
+jupyagent exec <notebook> [--timeout <seconds>] [--output <path>]
 ```
 
 ## Selectors
@@ -180,6 +183,29 @@ Read saved outputs:
 jupyagent output read analysis.ipynb 2
 ```
 
+Execute a notebook in place:
+
+```bash
+jupyagent exec analysis.ipynb
+```
+
+Execute a notebook and write the result elsewhere:
+
+```bash
+jupyagent exec analysis.ipynb --output analysis.executed.ipynb
+```
+
+## Execution Behavior
+
+`exec` performs a stateless batch execution of the full notebook using the notebook's configured kernel.
+
+- execution always starts from the first cell
+- outputs are saved back into the notebook file by default
+- `--output` writes the executed notebook to a new path instead of modifying the source file
+- failures return a non-zero exit code and report the failing cell
+- partial outputs up to the failing cell are preserved in the written notebook
+- this is intended for exploratory and batch workflows, not long-running interactive sessions
+
 ## Output Behavior
 
 `output read` renders saved outputs as Markdown where possible.
@@ -235,9 +261,9 @@ Implemented now:
 - `cell delete`
 - `cell move`
 - `output read`
+- `exec`
 
 Not yet implemented:
 
-- notebook execution
 - kernel management
 - `cell patch`

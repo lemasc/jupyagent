@@ -26,6 +26,10 @@ def load_notebook(path: Path):
         notebook = nbformat.from_dict(data)
         if not isinstance(notebook.get("cells"), list):
             raise ValueError("missing cells")
+        for cell in notebook.cells:
+            source = cell.get("source")
+            if isinstance(source, list):
+                cell["source"] = "".join(source)
         return notebook
     except Exception as exc:
         raise JupyagentError(f"error: notebook '{path}' is not a valid notebook") from exc

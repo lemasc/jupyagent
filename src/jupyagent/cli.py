@@ -8,6 +8,7 @@ import typer
 from .errors import JupyagentError
 from .operations import (
     delete_cells,
+    execute_notebook,
     insert_cell,
     list_cells,
     move_cells,
@@ -23,6 +24,15 @@ output_app = typer.Typer(no_args_is_help=True)
 
 app.add_typer(cell_app, name="cell")
 app.add_typer(output_app, name="output")
+
+
+@app.command("exec")
+def exec_notebook(
+    notebook: Path,
+    timeout: Annotated[int | None, typer.Option("--timeout")] = None,
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+) -> None:
+    _run(lambda: typer.echo(execute_notebook(notebook, timeout, output)))
 
 
 @cell_app.command("list")
