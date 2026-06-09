@@ -51,15 +51,15 @@ def render_single_output(notebook_path: Path, cell: dict, output: dict, output_i
         rendered_table = render_html_table(_join(data["text/html"]))
         if rendered_table is not None:
             return [rendered_table]
+    for mime_type, extension in (("image/png", "png"), ("image/jpeg", "jpg")):
+        if mime_type in data:
+            asset_path = write_image_asset(notebook_path, cell.get("id", "unknown"), output_index, extension, _join(data[mime_type]))
+            return [f"![output image]({asset_path})"]
     if "text/plain" in data:
         return fenced("text", _join(data["text/plain"]))
     if "text/html" in data:
         html_text = BeautifulSoup(_join(data["text/html"]), "html.parser").get_text("\n")
         return fenced("text", html_text.strip())
-    for mime_type, extension in (("image/png", "png"), ("image/jpeg", "jpg")):
-        if mime_type in data:
-            asset_path = write_image_asset(notebook_path, cell.get("id", "unknown"), output_index, extension, _join(data[mime_type]))
-            return [f"![output image]({asset_path})"]
     supported = sorted(data.keys())
     label = supported[0] if supported else output_type or "unknown"
     return [f"_Unsupported output: {label}_"]

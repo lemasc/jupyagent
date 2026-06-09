@@ -99,7 +99,10 @@ def test_output_read_extracts_image_asset(notebook_copy: Path) -> None:
     notebook["cells"][1]["outputs"].append(
         {
             "output_type": "display_data",
-            "data": {"image/png": base64.b64encode(b"png-bytes").decode("ascii")},
+            "data": {
+                "text/plain": "<Figure size 1800x400 with 3 Axes>",
+                "image/png": base64.b64encode(b"png-bytes").decode("ascii"),
+            },
             "metadata": {},
         }
     )
