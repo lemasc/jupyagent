@@ -71,7 +71,7 @@ Notes:
 
 ```bash
 jupyagent cell list <notebook>
-jupyagent cell read <notebook> <selector>
+jupyagent cell read <notebook> <selector> [--output]
 jupyagent cell insert <notebook> <position> --type code|markdown|raw [--file <path>]
 jupyagent cell replace <notebook> <selector> --type code|markdown|raw [--file <path>] [--keep-outputs]
 jupyagent cell delete <notebook> <selector>
@@ -105,6 +105,7 @@ Examples:
 jupyagent cell read analysis.ipynb abc123
 jupyagent cell read analysis.ipynb 4
 jupyagent cell read analysis.ipynb 2:6
+jupyagent cell read analysis.ipynb 2 --output
 jupyagent output read analysis.ipynb all
 ```
 
@@ -139,6 +140,12 @@ Read a code cell:
 
 ```bash
 jupyagent cell read analysis.ipynb 2
+```
+
+Read a code cell with saved outputs:
+
+```bash
+jupyagent cell read analysis.ipynb 2 --output
 ```
 
 Insert a markdown cell from a file:

@@ -41,8 +41,12 @@ def cell_list(notebook: Path) -> None:
 
 
 @cell_app.command("read")
-def cell_read(notebook: Path, selector: str) -> None:
-    _run(lambda: typer.echo(read_cells(notebook, selector)))
+def cell_read(
+    notebook: Path,
+    selector: str,
+    output: Annotated[bool, typer.Option("--output", help="Include saved cell outputs")] = False,
+) -> None:
+    _run(lambda: typer.echo(read_cells(notebook, selector, include_output=output)))
 
 
 @cell_app.command("insert")

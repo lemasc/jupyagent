@@ -17,18 +17,23 @@ def render_cell_outputs(notebook_path: Path, cell: dict, index: int) -> str:
         f"<!-- cell type: {cell.get('cell_type', '')} -->",
         "",
     ]
+    lines.extend(render_output_body(notebook_path, cell))
+    return "\n".join(lines)
+
+
+def render_output_body(notebook_path: Path, cell: dict) -> list[str]:
     outputs = cell.get("outputs", [])
     if not outputs:
-        lines.append("_No saved outputs._")
-        return "\n".join(lines)
+        return ["_No saved outputs._"]
 
+    lines: list[str] = []
     for output_index, output in enumerate(outputs, start=1):
         if output_index > 1:
             lines.append("")
         lines.append(f"## Output {output_index}")
         lines.append("")
         lines.extend(render_single_output(notebook_path, cell, output, output_index))
-    return "\n".join(lines)
+    return lines
 
 
 def render_single_output(notebook_path: Path, cell: dict, output: dict, output_index: int) -> list[str]:

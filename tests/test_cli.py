@@ -27,6 +27,23 @@ def test_cell_read_range(notebook_copy: Path) -> None:
     assert "<!-- cell id: code-1 -->" in result.stdout
 
 
+def test_cell_read_with_output_includes_saved_outputs(notebook_copy: Path) -> None:
+    result = runner.invoke(app, ["cell", "read", str(notebook_copy), "2", "--output"])
+    assert result.exit_code == 0
+    assert "```python" in result.stdout
+    assert "## Outputs" in result.stdout
+    assert "## Output 1" in result.stdout
+    assert "```text\nhello\n```" in result.stdout
+
+
+def test_cell_read_with_output_shows_missing_outputs(notebook_copy: Path) -> None:
+    result = runner.invoke(app, ["cell", "read", str(notebook_copy), "1", "--output"])
+    assert result.exit_code == 0
+    assert "# Title" in result.stdout
+    assert "## Outputs" in result.stdout
+    assert "_No saved outputs._" in result.stdout
+
+
 def test_cell_insert_repairs_ids(notebook_copy: Path) -> None:
     result = runner.invoke(
         app,

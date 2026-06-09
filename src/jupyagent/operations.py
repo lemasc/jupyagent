@@ -17,7 +17,7 @@ from .errors import JupyagentError
 from .notebook_io import atomic_write_notebook, load_notebook
 from .positions import resolve_insert_position, resolve_move_position
 from .render_cells import render_cell_list, render_cell_source
-from .render_outputs import render_cell_outputs
+from .render_outputs import render_cell_outputs, render_output_body
 from .selectors import resolve_selector_index, resolve_selector_indices
 
 CELL_TYPES = {"code", "markdown", "raw"}
@@ -30,11 +30,14 @@ def list_cells(notebook_path: Path) -> str:
     return render_cell_list(notebook.cells)
 
 
-def read_cells(notebook_path: Path, selector: str) -> str:
+def read_cells(notebook_path: Path, selector: str, include_output: bool = False) -> str:
     notebook = load_notebook(notebook_path)
     _warn_id_issues(notebook.cells)
     indices = resolve_selector_indices(notebook.cells, selector)
-    return "\n\n".join(render_cell_source(notebook.cells[index], index + 1) for index in indices)
+    return "\n\n".join(
+        _render_cell_read(notebook_path, notebook.cells[index], index + 1, include_output)
+        for index in indices
+    )
 
 
 def read_outputs(notebook_path: Path, selector: str) -> str:
@@ -44,6 +47,13 @@ def read_outputs(notebook_path: Path, selector: str) -> str:
     return "\n\n".join(
         render_cell_outputs(notebook_path, notebook.cells[index], index + 1) for index in indices
     )
+
+
+def _render_cell_read(notebook_path: Path, cell: dict, index: int, include_output: bool) -> str:
+    rendered = render_cell_source(cell, index)
+    if not include_output:
+        return rendered
+    return "\n".join([rendered, "", *render_output_body(notebook_path, cell)])
 
 
 def insert_cell(notebook_path: Path, position: str, cell_type: str, source: str) -> str:
