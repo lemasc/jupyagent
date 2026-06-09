@@ -160,10 +160,32 @@ Insert a code cell from stdin:
 jupyagent cell insert analysis.ipynb after:prep --type code < transform.py
 ```
 
+Insert a code cell from a multiline heredoc:
+
+```bash
+cat <<'EOF' | jupyagent cell insert analysis.ipynb end --type code
+import pandas as pd
+
+df = pd.read_csv("data.csv")
+df.head()
+EOF
+```
+
 Replace a cell and clear old outputs:
 
 ```bash
 jupyagent cell replace analysis.ipynb 2 --type code < transform.py
+```
+
+Replace a cell from a multiline heredoc:
+
+```bash
+cat <<'EOF' | jupyagent cell replace analysis.ipynb 2 --type markdown
+## Summary
+
+- Loaded the latest dataset
+- Recomputed the aggregate metrics
+EOF
 ```
 
 Replace a code cell but keep saved outputs:
