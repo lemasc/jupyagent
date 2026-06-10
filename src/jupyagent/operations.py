@@ -205,14 +205,32 @@ def execute_notebook(notebook_path: Path, timeout: int | None, output_path: Path
     repaired = ensure_cell_ids(notebook.cells)
     destination = output_path or notebook_path
     started = time.monotonic()
-    client = nbclient.NotebookClient(notebook, timeout=timeout, record_timing=False)
+    code_cell_total = sum(1 for cell in notebook.cells if cell.get("cell_type") == "code" and _cell_has_source(cell))
+    active_cell: dict[str, int | str | None] = {"index": None, "id": None}
+
+    def on_cell_execute(cell: dict, cell_index: int) -> None:
+        active_cell["index"] = cell_index + 1
+        active_cell["id"] = cell.get("id")
+        print(
+            _progress_message(active_cell["index"], active_cell["id"], code_cell_total),
+            file=sys.stderr,
+        )
+
+    client = nbclient.NotebookClient(
+        notebook,
+        timeout=timeout,
+        record_timing=False,
+        on_cell_execute=on_cell_execute,
+    )
     try:
         client.execute()
     except NoSuchKernel as exc:
         raise JupyagentError(f"error: kernel '{exc.name}' is not installed") from exc
     except (CellExecutionError, CellTimeoutError) as exc:
         atomic_write_notebook(destination, notebook)
-        raise JupyagentError(_execution_error(notebook, destination, started, repaired, exc)) from exc
+        raise JupyagentError(
+            _execution_error(notebook, destination, started, repaired, exc, active_cell)
+        ) from exc
     except Exception as exc:
         raise JupyagentError(f"error: failed to execute notebook '{notebook_path}'") from exc
 
@@ -277,8 +295,9 @@ def _execution_error(
     started: float,
     repaired: int,
     exc: CellExecutionError | CellTimeoutError,
+    active_cell: dict[str, int | str | None],
 ) -> str:
-    index, cell_id = _find_failed_cell(notebook)
+    index, cell_id = _resolve_failed_cell(notebook, exc, active_cell)
     payload = {
         "modified": destination.name,
         "operation": "notebook exec",
@@ -289,6 +308,16 @@ def _execution_error(
         "error": _summarize_execution_exception(exc),
     }
     return _yaml(payload)
+
+
+def _resolve_failed_cell(
+    notebook: dict,
+    exc: CellExecutionError | CellTimeoutError,
+    active_cell: dict[str, int | str | None],
+) -> tuple[int | None, str | None]:
+    if isinstance(exc, CellTimeoutError) and active_cell["index"] is not None:
+        return active_cell["index"], active_cell["id"]
+    return _find_failed_cell(notebook)
 
 
 def _find_failed_cell(notebook: dict) -> tuple[int | None, str | None]:
@@ -304,9 +333,29 @@ def _find_failed_cell(notebook: dict) -> tuple[int | None, str | None]:
 
 def _summarize_execution_exception(exc: CellExecutionError | CellTimeoutError) -> str:
     if isinstance(exc, CellTimeoutError):
-        return _strip_ansi(str(exc).strip().splitlines()[-1])
+        return _summarize_timeout_exception(exc)
     lines = [_strip_ansi(line.strip()) for line in str(exc).splitlines() if line.strip()]
     return lines[-1] if lines else exc.__class__.__name__
+
+
+def _summarize_timeout_exception(exc: CellTimeoutError) -> str:
+    text = _strip_ansi(str(exc))
+    first_line = text.strip().splitlines()[0] if text.strip() else ""
+    match = re.search(r"after\s+(\d+)\s+seconds", first_line)
+    if match:
+        return f"cell timed out after {match.group(1)} seconds"
+    return first_line or exc.__class__.__name__
+
+
+def _progress_message(index: int | None, cell_id: str | None, total: int) -> str:
+    return f"progress: executing cell {index}/{total} (id: {cell_id or 'unknown'})"
+
+
+def _cell_has_source(cell: dict) -> bool:
+    source = cell.get("source", "")
+    if isinstance(source, list):
+        return bool("".join(source).strip())
+    return bool(str(source).strip())
 
 
 def _strip_ansi(text: str) -> str:

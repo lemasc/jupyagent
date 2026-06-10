@@ -212,6 +212,8 @@ def test_exec_runs_notebook_in_place(exec_success_notebook: Path) -> None:
     assert "operation: notebook exec" in result.stdout
     assert "modified: exec_success.ipynb" in result.stdout
     assert "executed_cells: 2" in result.stdout
+    assert "progress: executing cell 1/2 (id: setup)" in result.stderr
+    assert "progress: executing cell 2/2 (id: result)" in result.stderr
 
     notebook = nbformat.read(exec_success_notebook, as_version=4)
     assert notebook.cells[0]["execution_count"] == 1
@@ -241,6 +243,8 @@ def test_exec_reports_failure_and_writes_partial_outputs(exec_failure_notebook: 
     result = runner.invoke(app, ["exec", str(exec_failure_notebook)])
 
     assert result.exit_code == 1
+    assert "progress: executing cell 1/2 (id: before-failure)" in result.stderr
+    assert "progress: executing cell 2/2 (id: boom)" in result.stderr
     assert "operation: notebook exec" in result.stderr
     assert "status: failed" in result.stderr
     assert "index: 2" in result.stderr
@@ -251,6 +255,22 @@ def test_exec_reports_failure_and_writes_partial_outputs(exec_failure_notebook: 
     assert notebook.cells[0]["execution_count"] == 1
     assert notebook.cells[0]["outputs"][0]["text"] == "before\n"
     assert notebook.cells[1]["outputs"][0]["output_type"] == "error"
+
+
+def test_exec_reports_timeout_with_active_cell(exec_timeout_notebook: Path) -> None:
+    result = runner.invoke(app, ["exec", str(exec_timeout_notebook), "--timeout", "1"])
+
+    assert result.exit_code == 1
+    assert "progress: executing cell 1/1 (id: slow)" in result.stderr
+    assert "operation: notebook exec" in result.stderr
+    assert "status: failed" in result.stderr
+    assert "index: 1" in result.stderr
+    assert "id: slow" in result.stderr
+    assert "error: cell timed out after 1 seconds" in result.stderr
+
+    notebook = nbformat.read(exec_timeout_notebook, as_version=4)
+    assert notebook.cells[0]["execution_count"] == 1
+    assert notebook.cells[0]["outputs"][0]["output_type"] == "error"
 
 
 def test_missing_selector_exits_nonzero(notebook_copy: Path) -> None:
