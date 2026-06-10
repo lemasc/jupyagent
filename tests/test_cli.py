@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from pathlib import Path
 
 import nbformat
@@ -42,6 +43,16 @@ def test_cell_read_with_output_shows_missing_outputs(notebook_copy: Path) -> Non
     assert "# Title" in result.stdout
     assert "## Outputs" in result.stdout
     assert "_No saved outputs._" in result.stdout
+
+
+def test_cell_path_returns_canonical_virtual_paths(notebook_copy: Path) -> None:
+    result = runner.invoke(app, ["cell", "path", str(notebook_copy), "all"])
+    assert result.exit_code == 0
+    assert "warning: detected 1 cell id issue" in result.stderr
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == "sample.ipynb/cells/0001__intro.source.md"
+    assert lines[1] == "sample.ipynb/cells/0002__code-1.source.code"
+    assert re.fullmatch(r"sample\.ipynb/cells/0003__[0-9a-f]{8}\.source\.md", lines[2])
 
 
 def test_cell_insert_repairs_ids(notebook_copy: Path) -> None:
@@ -92,6 +103,47 @@ def test_cell_move_to_end(notebook_copy: Path) -> None:
 
     notebook = nbformat.read(notebook_copy, as_version=4)
     assert notebook.cells[-1]["id"] == "intro"
+
+
+def test_cell_patch_updates_multiple_cells_and_clears_code_outputs(notebook_copy: Path) -> None:
+    patch = """--- sample.ipynb/cells/0001__intro.source.md
++++ sample.ipynb/cells/0001__intro.source.md
+@@ -1,3 +1,3 @@
+ # Title
+ 
+-Intro text.
++Updated intro text.
+--- sample.ipynb/cells/0002__code-1.source.code
++++ sample.ipynb/cells/0002__code-1.source.code
+@@ -1 +1 @@
+-print('hello')
++print('patched')
+"""
+
+    result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
+    assert result.exit_code == 0
+    assert "operation: cell patch" in result.stdout
+    assert "outputs_cleared: 1" in result.stdout
+    assert "ids_repaired: 1" in result.stdout
+
+    notebook = nbformat.read(notebook_copy, as_version=4)
+    assert notebook.cells[0]["source"] == "# Title\n\nUpdated intro text.\n"
+    assert notebook.cells[1]["source"] == "print('patched')\n"
+    assert notebook.cells[1]["outputs"] == []
+    assert notebook.cells[1]["execution_count"] is None
+
+
+def test_cell_patch_rejects_unknown_virtual_path(notebook_copy: Path) -> None:
+    patch = """--- sample.ipynb/cells/9999__missing.source.code
++++ sample.ipynb/cells/9999__missing.source.code
+@@ -1 +1 @@
+-print('hello')
++print('patched')
+"""
+
+    result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
+    assert result.exit_code == 1
+    assert "did not match any cell" in result.stderr
 
 
 def test_output_read_extracts_image_asset(notebook_copy: Path) -> None:

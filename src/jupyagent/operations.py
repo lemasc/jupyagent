@@ -13,12 +13,14 @@ from jupyter_client.kernelspec import NoSuchKernel
 from nbclient.exceptions import CellExecutionError, CellTimeoutError
 
 from .cell_ids import count_id_issues, ensure_cell_ids
+from .cell_paths import cell_virtual_path
 from .errors import JupyagentError
 from .notebook_io import atomic_write_notebook, load_notebook
 from .positions import resolve_insert_position, resolve_move_position
 from .render_cells import render_cell_list, render_cell_source
 from .render_outputs import render_cell_outputs, render_output_body
 from .selectors import resolve_selector_index, resolve_selector_indices
+from .unified_diff import apply_unified_diff, parse_unified_diff
 
 CELL_TYPES = {"code", "markdown", "raw"}
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -47,6 +49,14 @@ def read_outputs(notebook_path: Path, selector: str) -> str:
     return "\n\n".join(
         render_cell_outputs(notebook_path, notebook.cells[index], index + 1) for index in indices
     )
+
+
+def list_cell_paths(notebook_path: Path, selector: str) -> str:
+    notebook = load_notebook(notebook_path)
+    _warn_id_issues(notebook.cells)
+    ensure_cell_ids(notebook.cells)
+    indices = resolve_selector_indices(notebook.cells, selector)
+    return "\n".join(cell_virtual_path(notebook_path, notebook.cells[index], index + 1) for index in indices)
 
 
 def _render_cell_read(notebook_path: Path, cell: dict, index: int, include_output: bool) -> str:
@@ -141,6 +151,50 @@ def move_cells(notebook_path: Path, selector: str, position: str) -> str:
             "modified": notebook_path.name,
             "operation": "cell move",
             "moved": {"count": len(indices), "indexes": new_indexes},
+            "ids_repaired": repaired,
+        }
+    )
+
+
+def patch_cells(notebook_path: Path, patch_text: str) -> str:
+    notebook = load_notebook(notebook_path)
+    repaired = ensure_cell_ids(notebook.cells)
+    file_patches = parse_unified_diff(patch_text)
+    cell_by_path = {
+        cell_virtual_path(notebook_path, cell, index + 1): (index, cell)
+        for index, cell in enumerate(notebook.cells)
+    }
+    patched_indices: list[int] = []
+    outputs_cleared = 0
+    for file_patch in file_patches:
+        target = cell_by_path.get(file_patch.path)
+        if target is None:
+            raise JupyagentError(f"error: patch target '{file_patch.path}' did not match any cell")
+        index, cell = target
+        patched_source = apply_unified_diff(cell.get("source", ""), file_patch.hunks)
+        if patched_source == cell.get("source", ""):
+            continue
+        cell["source"] = patched_source
+        if cell.get("cell_type") == "code":
+            if cell.get("outputs"):
+                outputs_cleared += 1
+            cell["outputs"] = []
+            cell["execution_count"] = None
+        patched_indices.append(index)
+    atomic_write_notebook(notebook_path, notebook)
+    return _yaml(
+        {
+            "modified": notebook_path.name,
+            "operation": "cell patch",
+            "patched_cells": [
+                {
+                    "id": notebook.cells[index]["id"],
+                    "index": index + 1,
+                    "type": notebook.cells[index]["cell_type"],
+                }
+                for index in patched_indices
+            ],
+            "outputs_cleared": outputs_cleared,
             "ids_repaired": repaired,
         }
     )

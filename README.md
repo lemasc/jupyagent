@@ -8,6 +8,7 @@ This MVP focuses on notebook file management and stateless full-notebook executi
 - read cell source
 - read saved outputs
 - insert, replace, delete, and move cells
+- patch one or more cell sources with unified diffs
 - execute a notebook from top to bottom
 
 It does not provide interactive or persistent kernel management.
@@ -57,25 +58,28 @@ Recommended workflow for agents:
 2. Read specific cells with `jupyagent cell read <notebook> <selector>`.
 3. Read saved outputs with `jupyagent output read <notebook> <selector>` when needed.
 4. Apply structural edits with `cell insert`, `cell replace`, `cell delete`, or `cell move`.
-5. Run `jupyagent exec <notebook>` when you need fresh outputs.
-6. Re-run `cell list`, `cell read`, or `output read` to verify the result.
+5. Use `cell path` and `cell patch` for source-level edits across multiple cells.
+6. Run `jupyagent exec <notebook>` when you need fresh outputs.
+7. Re-run `cell list`, `cell read`, or `output read` to verify the result.
 
 Notes:
 
 - Read-only commands do not rewrite notebooks.
 - Mutating commands repair missing or duplicate cell IDs before writing.
 - `output read` may create files under `.jupyagent/assets/` for extracted images.
-- Replacing a code cell clears saved outputs by default.
+- Replacing or patching a code cell clears saved outputs and execution count.
 
 ## Command Overview
 
 ```bash
 jupyagent cell list <notebook>
 jupyagent cell read <notebook> <selector> [--output]
+jupyagent cell path <notebook> <selector>
 jupyagent cell insert <notebook> <position> --type code|markdown|raw [--file <path>]
 jupyagent cell replace <notebook> <selector> --type code|markdown|raw [--file <path>] [--keep-outputs]
 jupyagent cell delete <notebook> <selector>
 jupyagent cell move <notebook> <selector> <position>
+jupyagent cell patch <notebook> [--file <path>]
 
 jupyagent output read <notebook> <selector>
 jupyagent exec <notebook> [--timeout <seconds>] [--output <path>]
@@ -128,6 +132,34 @@ jupyagent cell insert analysis.ipynb after:abc123 --type code < transform.py
 jupyagent cell move analysis.ipynb 3:5 end
 ```
 
+## Virtual Paths
+
+`cell patch` targets canonical virtual cell source paths.
+
+Always get these paths from `jupyagent cell path <notebook> <selector>` instead of constructing them by hand.
+
+Format:
+
+```text
+<notebook-name>.ipynb/cells/<index-padded>__<cell-id>.source.<ext>
+```
+
+Examples:
+
+```text
+analysis.ipynb/cells/0001__intro.source.md
+analysis.ipynb/cells/0002__prep.source.code
+analysis.ipynb/cells/0003__notes.source.raw
+```
+
+Rules:
+
+- Paths are canonical. `cell patch` matches these exact paths.
+- Paths are generated after in-memory cell ID repair, so duplicate or missing notebook IDs may appear with repaired IDs.
+- `cell path` does not rewrite the notebook file.
+- `cell patch` only edits cell source content. It does not create, delete, move, or patch outputs or metadata.
+- Extensions map to cell types: `code -> .code`, `markdown -> .md`, `raw -> .raw`.
+
 ## Usage Examples
 
 List cells:
@@ -140,6 +172,12 @@ Read a code cell:
 
 ```bash
 jupyagent cell read analysis.ipynb 2
+```
+
+Show canonical virtual paths:
+
+```bash
+jupyagent cell path analysis.ipynb 2:3
 ```
 
 Read a code cell with saved outputs:
@@ -204,6 +242,25 @@ Move cells to the end:
 
 ```bash
 jupyagent cell move analysis.ipynb 3:5 end
+```
+
+Patch two cells at once:
+
+```diff
+--- analysis.ipynb/cells/0002__prep.source.code
++++ analysis.ipynb/cells/0002__prep.source.code
+@@ -1 +1 @@
+-print("old")
++print("new")
+--- analysis.ipynb/cells/0004__summary.source.md
++++ analysis.ipynb/cells/0004__summary.source.md
+@@ -1 +1 @@
+-Old summary
++New summary
+```
+
+```bash
+jupyagent cell patch analysis.ipynb < changes.diff
 ```
 
 Read saved outputs:
@@ -290,10 +347,11 @@ Implemented now:
 - `cell replace`
 - `cell delete`
 - `cell move`
+- `cell path`
+- `cell patch`
 - `output read`
 - `exec`
 
 Not yet implemented:
 
 - kernel management
-- `cell patch`
