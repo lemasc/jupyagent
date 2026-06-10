@@ -96,9 +96,7 @@ def _parse_hunk(lines: list[str], index: int) -> tuple[Hunk, int]:
     if not match:
         raise JupyagentError("error: invalid patch hunk header")
     old_start = int(match.group(1))
-    old_count = int(match.group(2) or "1")
     new_start = int(match.group(3))
-    new_count = int(match.group(4) or "1")
     index += 1
     hunk_lines: list[HunkLine] = []
     while index < len(lines) and not lines[index].startswith(("@@ ", "--- ")):
@@ -114,6 +112,8 @@ def _parse_hunk(lines: list[str], index: int) -> tuple[Hunk, int]:
             raise JupyagentError("error: invalid patch hunk line")
         hunk_lines.append(HunkLine(operation=operation, text=raw_line[1:]))
         index += 1
+    old_count = sum(1 for line in hunk_lines if line.operation != "+")
+    new_count = sum(1 for line in hunk_lines if line.operation != "-")
     return Hunk(old_start, old_count, new_start, new_count, hunk_lines), index
 
 

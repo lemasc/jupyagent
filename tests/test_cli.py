@@ -146,6 +146,24 @@ def test_cell_patch_rejects_unknown_virtual_path(notebook_copy: Path) -> None:
     assert "did not match any cell" in result.stderr
 
 
+def test_cell_patch_tolerates_incorrect_hunk_counts(notebook_copy: Path) -> None:
+    patch = """--- sample.ipynb/cells/0001__intro.source.md
++++ sample.ipynb/cells/0001__intro.source.md
+@@ -1,1 +1,1 @@
+ # Title
+ 
+-Intro text.
++Patched intro text.
+"""
+
+    result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
+    assert result.exit_code == 0
+    assert "operation: cell patch" in result.stdout
+
+    notebook = nbformat.read(notebook_copy, as_version=4)
+    assert notebook.cells[0]["source"] == "# Title\n\nPatched intro text.\n"
+
+
 def test_output_read_extracts_image_asset(notebook_copy: Path) -> None:
     notebook = json.loads(notebook_copy.read_text(encoding="utf-8"))
     notebook["cells"][1]["outputs"].append(
