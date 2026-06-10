@@ -164,6 +164,42 @@ def test_cell_patch_tolerates_incorrect_hunk_counts(notebook_copy: Path) -> None
     assert notebook.cells[0]["source"] == "# Title\n\nPatched intro text.\n"
 
 
+def test_cell_patch_matches_headerless_hunk_by_exact_context(notebook_copy: Path) -> None:
+    patch = """--- sample.ipynb/cells/0001__intro.source.md
++++ sample.ipynb/cells/0001__intro.source.md
+@@
+ # Title
+ 
+-Intro text.
++Patched intro text.
+"""
+
+    result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
+    assert result.exit_code == 0
+    assert "operation: cell patch" in result.stdout
+
+    notebook = nbformat.read(notebook_copy, as_version=4)
+    assert notebook.cells[0]["source"] == "# Title\n\nPatched intro text.\n"
+
+
+def test_cell_patch_reports_missing_headerless_hunk_context(notebook_copy: Path) -> None:
+    patch = """--- sample.ipynb/cells/0001__intro.source.md
++++ sample.ipynb/cells/0001__intro.source.md
+@@
+ # Title
+ 
+-Missing intro text.
++Patched intro text.
+"""
+
+    result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
+    assert result.exit_code == 1
+    assert "error: patch hunk context was not found in cell source" in result.stderr
+    assert "target: sample.ipynb/cells/0001__intro.source.md" in result.stderr
+    assert "hunk: @@" in result.stderr
+    assert "patch_delete: 'Missing intro text.\\n'" in result.stderr
+
+
 def test_cell_patch_reports_structured_source_mismatch(notebook_copy: Path) -> None:
     patch = """--- sample.ipynb/cells/0001__intro.source.md
 +++ sample.ipynb/cells/0001__intro.source.md

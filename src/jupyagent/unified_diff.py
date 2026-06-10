@@ -17,9 +17,9 @@ class HunkLine:
 @dataclass
 class Hunk:
     header: str
-    old_start: int
+    old_start: int | None
     old_count: int
-    new_start: int
+    new_start: int | None
     new_count: int
     lines: list[HunkLine]
 
@@ -49,7 +49,7 @@ def parse_unified_diff(patch_text: str) -> list[FilePatch]:
             raise JupyagentError("error: patch cannot rename virtual cell files")
         hunks: list[Hunk] = []
         while index < len(lines) and not lines[index].startswith("--- "):
-            if not lines[index].startswith("@@ "):
+            if not lines[index].startswith("@@"):
                 raise JupyagentError("error: expected '@@' hunk header in patch")
             hunk, index = _parse_hunk(lines, index)
             hunks.append(hunk)
@@ -64,7 +64,10 @@ def apply_unified_diff(source: str, hunks: list[Hunk], target_path: str) -> str:
     result: list[str] = []
     cursor = 0
     for hunk in hunks:
-        start = max(hunk.old_start - 1, 0)
+        if hunk.old_start is None:
+            start = _locate_hunk_start(original_lines, cursor, hunk, target_path)
+        else:
+            start = max(hunk.old_start - 1, 0)
         if start < cursor or start > len(original_lines):
             raise JupyagentError(_format_hunk_error(target_path, hunk, start + 1, None, None, "patch hunk location is invalid"))
         result.extend(original_lines[cursor:start])
@@ -94,14 +97,19 @@ def apply_unified_diff(source: str, hunks: list[Hunk], target_path: str) -> str:
 
 def _parse_hunk(lines: list[str], index: int) -> tuple[Hunk, int]:
     header = lines[index].rstrip("\n")
-    match = HUNK_HEADER_RE.match(lines[index])
-    if not match:
-        raise JupyagentError("error: invalid patch hunk header")
-    old_start = int(match.group(1))
-    new_start = int(match.group(3))
-    index += 1
+    if header == "@@":
+        old_start = None
+        new_start = None
+        index += 1
+    else:
+        match = HUNK_HEADER_RE.match(lines[index])
+        if not match:
+            raise JupyagentError("error: invalid patch hunk header")
+        old_start = int(match.group(1))
+        new_start = int(match.group(3))
+        index += 1
     hunk_lines: list[HunkLine] = []
-    while index < len(lines) and not lines[index].startswith(("@@ ", "--- ")):
+    while index < len(lines) and not lines[index].startswith(("@@", "--- ")):
         raw_line = lines[index]
         if raw_line.startswith("\\ No newline at end of file"):
             if not hunk_lines:
@@ -117,6 +125,44 @@ def _parse_hunk(lines: list[str], index: int) -> tuple[Hunk, int]:
     old_count = sum(1 for line in hunk_lines if line.operation != "+")
     new_count = sum(1 for line in hunk_lines if line.operation != "-")
     return Hunk(header, old_start, old_count, new_start, new_count, hunk_lines), index
+
+
+def _locate_hunk_start(source_lines: list[str], cursor: int, hunk: Hunk, target_path: str) -> int:
+    match_lines = [line.text for line in hunk.lines if line.operation != "+"]
+    if not match_lines:
+        raise JupyagentError(
+            _format_hunk_error(
+                target_path,
+                hunk,
+                cursor + 1,
+                source_lines[cursor] if cursor < len(source_lines) else None,
+                None,
+                "headerless patch hunk must include at least one context or delete line",
+            )
+        )
+
+    last_start = len(source_lines) - len(match_lines)
+    for start in range(cursor, last_start + 1):
+        if source_lines[start : start + len(match_lines)] == match_lines:
+            return start
+
+    anchor_line = next((line for line in hunk.lines if line.operation == "-"), None)
+    line_kind = "delete"
+    if anchor_line is None:
+        anchor_line = next((line for line in hunk.lines if line.operation == " "), None)
+        line_kind = "context"
+
+    raise JupyagentError(
+        _format_hunk_error(
+            target_path,
+            hunk,
+            cursor + 1,
+            source_lines[cursor] if cursor < len(source_lines) else None,
+            anchor_line.text if anchor_line is not None else None,
+            "patch hunk context was not found in cell source",
+            line_kind,
+        )
+    )
 
 
 def _normalize_patch_path(value: str) -> str:
