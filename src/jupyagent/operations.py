@@ -171,7 +171,7 @@ def patch_cells(notebook_path: Path, patch_text: str) -> str:
         if target is None:
             raise JupyagentError(f"error: patch target '{file_patch.path}' did not match any cell")
         index, cell = target
-        patched_source = apply_unified_diff(cell.get("source", ""), file_patch.hunks)
+        patched_source = apply_unified_diff(cell.get("source", ""), file_patch.hunks, file_patch.path)
         if patched_source == cell.get("source", ""):
             continue
         cell["source"] = patched_source

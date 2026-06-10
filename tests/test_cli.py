@@ -164,6 +164,27 @@ def test_cell_patch_tolerates_incorrect_hunk_counts(notebook_copy: Path) -> None
     assert notebook.cells[0]["source"] == "# Title\n\nPatched intro text.\n"
 
 
+def test_cell_patch_reports_structured_source_mismatch(notebook_copy: Path) -> None:
+    patch = """--- sample.ipynb/cells/0001__intro.source.md
++++ sample.ipynb/cells/0001__intro.source.md
+@@ -1,3 +1,3 @@
+ # Title
+ 
+- Missing intro text.
++Patched intro text.
+"""
+
+    result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
+    assert result.exit_code == 1
+    assert "error: patch hunk did not match cell source" in result.stderr
+    assert "target: sample.ipynb/cells/0001__intro.source.md" in result.stderr
+    assert "hunk: @@ -1,3 +1,3 @@" in result.stderr
+    assert "source_line: 3" in result.stderr
+    assert "source: 'Intro text.\\n'" in result.stderr
+    assert "patch_delete: ' Missing intro text.\\n'" in result.stderr
+    assert "hint: patch may be stale against the current notebook source" in result.stderr
+
+
 def test_output_read_extracts_image_asset(notebook_copy: Path) -> None:
     notebook = json.loads(notebook_copy.read_text(encoding="utf-8"))
     notebook["cells"][1]["outputs"].append(
