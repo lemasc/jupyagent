@@ -53,7 +53,7 @@ def _render_cell_read(notebook_path: Path, cell: dict, index: int, include_outpu
     rendered = render_cell_source(cell, index)
     if not include_output:
         return rendered
-    return "\n".join([rendered, "", *render_output_body(notebook_path, cell)])
+    return "\n".join([rendered, "", "## Outputs", "", *render_output_body(notebook_path, cell)])
 
 
 def insert_cell(notebook_path: Path, position: str, cell_type: str, source: str) -> str:
