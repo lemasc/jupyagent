@@ -64,10 +64,7 @@ def apply_unified_diff(source: str, hunks: list[Hunk], target_path: str) -> str:
     result: list[str] = []
     cursor = 0
     for hunk in hunks:
-        if hunk.old_start is None:
-            start = _locate_hunk_start(original_lines, cursor, hunk, target_path)
-        else:
-            start = max(hunk.old_start - 1, 0)
+        start = _locate_hunk_start(original_lines, cursor, hunk, target_path)
         if start < cursor or start > len(original_lines):
             raise JupyagentError(_format_hunk_error(target_path, hunk, start + 1, None, None, "patch hunk location is invalid"))
         result.extend(original_lines[cursor:start])
@@ -141,10 +138,23 @@ def _locate_hunk_start(source_lines: list[str], cursor: int, hunk: Hunk, target_
             )
         )
 
-    last_start = len(source_lines) - len(match_lines)
-    for start in range(cursor, last_start + 1):
-        if source_lines[start : start + len(match_lines)] == match_lines:
-            return start
+    matches = _find_hunk_matches(source_lines, cursor, match_lines)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        preferred_start = None if hunk.old_start is None else max(hunk.old_start - 1, 0)
+        if preferred_start in matches:
+            return preferred_start
+        raise JupyagentError(
+            _format_hunk_error(
+                target_path,
+                hunk,
+                cursor + 1,
+                source_lines[cursor] if cursor < len(source_lines) else None,
+                None,
+                "patch hunk matched multiple locations in cell source",
+            )
+        )
 
     anchor_line = next((line for line in hunk.lines if line.operation == "-"), None)
     line_kind = "delete"
@@ -163,6 +173,15 @@ def _locate_hunk_start(source_lines: list[str], cursor: int, hunk: Hunk, target_
             line_kind,
         )
     )
+
+
+def _find_hunk_matches(source_lines: list[str], cursor: int, match_lines: list[str]) -> list[int]:
+    last_start = len(source_lines) - len(match_lines)
+    matches: list[int] = []
+    for start in range(cursor, last_start + 1):
+        if source_lines[start : start + len(match_lines)] == match_lines:
+            matches.append(start)
+    return matches
 
 
 def _normalize_patch_path(value: str) -> str:

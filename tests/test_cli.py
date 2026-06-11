@@ -182,6 +182,24 @@ def test_cell_patch_matches_headerless_hunk_by_exact_context(notebook_copy: Path
     assert notebook.cells[0]["source"] == "# Title\n\nPatched intro text.\n"
 
 
+def test_cell_patch_ignores_stale_numbered_hunk_location_when_context_matches(notebook_copy: Path) -> None:
+    patch = """--- sample.ipynb/cells/0001__intro.source.md
++++ sample.ipynb/cells/0001__intro.source.md
+@@ -99,3 +99,3 @@
+ # Title
+ 
+-Intro text.
++Patched intro text.
+"""
+
+    result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
+    assert result.exit_code == 0
+    assert "operation: cell patch" in result.stdout
+
+    notebook = nbformat.read(notebook_copy, as_version=4)
+    assert notebook.cells[0]["source"] == "# Title\n\nPatched intro text.\n"
+
+
 def test_cell_patch_reports_missing_headerless_hunk_context(notebook_copy: Path) -> None:
     patch = """--- sample.ipynb/cells/0001__intro.source.md
 +++ sample.ipynb/cells/0001__intro.source.md
@@ -212,13 +230,32 @@ def test_cell_patch_reports_structured_source_mismatch(notebook_copy: Path) -> N
 
     result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
     assert result.exit_code == 1
-    assert "error: patch hunk did not match cell source" in result.stderr
+    assert "error: patch hunk context was not found in cell source" in result.stderr
     assert "target: sample.ipynb/cells/0001__intro.source.md" in result.stderr
     assert "hunk: @@ -1,3 +1,3 @@" in result.stderr
-    assert "source_line: 3" in result.stderr
-    assert "source: 'Intro text.\\n'" in result.stderr
+    assert "source_line: 1" in result.stderr
+    assert "source: '# Title\\n'" in result.stderr
     assert "patch_delete: ' Missing intro text.\\n'" in result.stderr
     assert "hint: patch may be stale against the current notebook source" in result.stderr
+
+
+def test_cell_patch_reports_ambiguous_hunk_without_disambiguating_header(notebook_copy: Path) -> None:
+    notebook = nbformat.read(notebook_copy, as_version=4)
+    notebook.cells[0]["source"] = "repeat\nrepeat\n"
+    nbformat.write(notebook, notebook_copy)
+
+    patch = """--- sample.ipynb/cells/0001__intro.source.md
++++ sample.ipynb/cells/0001__intro.source.md
+@@
+-repeat
++patched
+"""
+
+    result = runner.invoke(app, ["cell", "patch", str(notebook_copy)], input=patch)
+    assert result.exit_code == 1
+    assert "error: patch hunk matched multiple locations in cell source" in result.stderr
+    assert "target: sample.ipynb/cells/0001__intro.source.md" in result.stderr
+    assert "hunk: @@" in result.stderr
 
 
 def test_output_read_extracts_image_asset(notebook_copy: Path) -> None:
