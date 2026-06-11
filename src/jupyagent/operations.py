@@ -205,14 +205,14 @@ def execute_notebook(notebook_path: Path, timeout: int | None, output_path: Path
     repaired = ensure_cell_ids(notebook.cells)
     destination = output_path or notebook_path
     started = time.monotonic()
-    code_cell_total = sum(1 for cell in notebook.cells if cell.get("cell_type") == "code" and _cell_has_source(cell))
+    cells_total = len(notebook.cells)
     active_cell: dict[str, int | str | None] = {"index": None, "id": None}
 
     def on_cell_execute(cell: dict, cell_index: int) -> None:
         active_cell["index"] = cell_index + 1
         active_cell["id"] = cell.get("id")
         print(
-            _progress_message(active_cell["index"], active_cell["id"], code_cell_total),
+            _progress_message(active_cell["index"], active_cell["id"], cells_total),
             file=sys.stderr,
         )
 

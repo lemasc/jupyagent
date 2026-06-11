@@ -295,6 +295,20 @@ def test_exec_runs_notebook_in_place(exec_success_notebook: Path) -> None:
     assert notebook.cells[1]["outputs"][0]["data"]["text/plain"] == "10"
 
 
+def test_exec_progress_uses_notebook_cell_positions(exec_mixed_cells_notebook: Path) -> None:
+    result = runner.invoke(app, ["exec", str(exec_mixed_cells_notebook)])
+
+    assert result.exit_code == 0
+    assert "executed_cells: 2" in result.stdout
+    assert "progress: executing cell 1/3 (id: setup)" in result.stderr
+    assert "progress: executing cell 3/3 (id: result)" in result.stderr
+
+    notebook = nbformat.read(exec_mixed_cells_notebook, as_version=4)
+    assert notebook.cells[0]["execution_count"] == 1
+    assert notebook.cells[1]["cell_type"] == "markdown"
+    assert notebook.cells[2]["execution_count"] == 2
+
+
 def test_exec_writes_to_output_path(exec_success_notebook: Path) -> None:
     output = exec_success_notebook.parent / "executed.ipynb"
 

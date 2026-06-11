@@ -49,3 +49,31 @@ def exec_timeout_notebook(tmp_path: Path) -> Path:
     notebook.metadata["language_info"] = {"name": "python"}
     nbformat.write(notebook, target)
     return target
+
+
+@pytest.fixture
+def exec_mixed_cells_notebook(tmp_path: Path) -> Path:
+    target = tmp_path / "exec_mixed_cells.ipynb"
+    notebook = nbformat.v4.new_notebook()
+    notebook.cells = [
+        nbformat.v4.new_code_cell(
+            source="value = 2\nprint(value)\n",
+            id="setup",
+        ),
+        nbformat.v4.new_markdown_cell(
+            source="This cell should not affect execution progress callbacks.",
+            id="note",
+        ),
+        nbformat.v4.new_code_cell(
+            source="value * 3\n",
+            id="result",
+        ),
+    ]
+    notebook.metadata["kernelspec"] = {
+        "display_name": "Python 3",
+        "language": "python",
+        "name": "python3",
+    }
+    notebook.metadata["language_info"] = {"name": "python"}
+    nbformat.write(notebook, target)
+    return target
